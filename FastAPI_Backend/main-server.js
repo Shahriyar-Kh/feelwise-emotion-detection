@@ -12,27 +12,70 @@ const progressRoutes = require("./routes/progress");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const primaryMongoUri = process.env.MONGODB_URI;
+const fallbackMongoUri = process.env.MONGODB_LOCAL_URI || process.env.LOCAL_MONGODB_URI;
+const resolvedMongoUri = primaryMongoUri || fallbackMongoUri;
+const mongoUriSource = primaryMongoUri ? "MONGODB_URI" : fallbackMongoUri ? "MONGODB_LOCAL_URI" : null;
+
+let mongooseConnected = false;
+
+function formatMongoError(err) {
+  if (!err) {
+    return "Unknown MongoDB error";
+  }
+
+  if (err.code === "ENOTFOUND") {
+    return [
+      `DNS lookup failed for MongoDB host: ${err.hostname || "unknown host"}.`,
+      "Update FastAPI_Backend/.env with a valid Atlas connection string in MONGODB_URI,",
+      "or set MONGODB_LOCAL_URI=mongodb://127.0.0.1:27017/feelwise_db after installing a local MongoDB server."
+    ].join(" ");
+  }
+
+  return err.message || String(err);
+}
+
+async function connectMongoose() {
+  if (!resolvedMongoUri) {
+    console.error(
+      "❌ MongoDB is not configured. Set MONGODB_URI for Atlas or MONGODB_LOCAL_URI for a local database."
+    );
+    return false;
+  }
+
+  try {
+    await mongoose.connect(resolvedMongoUri, {
+      serverSelectionTimeoutMS: 10000,
+      connectTimeoutMS: 10000,
+    });
+    mongooseConnected = true;
+    console.log(`✅ MongoDB (Mongoose) connected using ${mongoUriSource}`);
+    return true;
+  } catch (err) {
+    mongooseConnected = false;
+    console.error("❌ MongoDB (Mongoose) connection error:", formatMongoError(err));
+    return false;
+  }
+}
 
 // ---------------------------
 // MongoDB Connection (Mongoose for auth, MongoClient for journals)
 // ---------------------------
-mongoose
-  .connect(process.env.MONGODB_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  })
-  .then(() => console.log("✅ MongoDB (Mongoose) connected"))
-  .catch((err) => {
-    console.error("❌ MongoDB (Mongoose) connection error:", err);
-    process.exit(1);
-  });
+connectMongoose();
 
 // MongoDB Atlas Setup for journals (using same URI as Mongoose)
-const MONGO_URI = process.env.MONGODB_URI;
+const MONGO_URI = resolvedMongoUri;
 
 let mongoClient;
 async function checkMongoConnection() {
   try {
+    if (!MONGO_URI) {
+      return {
+        status: "not_configured",
+        details: "Set MONGODB_URI for Atlas or MONGODB_LOCAL_URI for a local database.",
+      };
+    }
+
     if (!mongoClient) {
       mongoClient = new MongoClient(MONGO_URI, { 
         connectTimeoutMS: 10000,
@@ -44,7 +87,7 @@ async function checkMongoConnection() {
     const count = await db.collection("journals").countDocuments();
     return { status: "ok", db: "feelwise_db", journal_count: count };
   } catch (err) {
-    return { status: "error", details: err.message };
+    return { status: "error", details: formatMongoError(err) };
   }
 }
 
@@ -59,19 +102,40 @@ app.use((req, res, next) => {
 // ---------------------------
 // Enhanced CORS Middleware
 // ---------------------------
-const allowedOrigins = [
+const configuredOrigins = (process.env.ALLOWED_ORIGINS || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+const allowedOrigins = new Set([
   "http://127.0.0.1:5500",
   "http://127.0.0.1:5501",
   "http://localhost:5500",
   "http://localhost:5501",
   "http://localhost:3000",
-  "http://127.0.0.1:3000"
-];
+  "http://127.0.0.1:3000",
+  ...configuredOrigins,
+]);
+
+function isAllowedDevOrigin(origin) {
+  try {
+    const parsed = new URL(origin);
+    const isHttp = parsed.protocol === "http:" || parsed.protocol === "https:";
+    const isDevPort = ["3000", "5500", "5501"].includes(parsed.port);
+    const isPrivateIpv4 = /^(127\.0\.0\.1|localhost|10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(
+      parsed.hostname
+    );
+
+    return isHttp && isDevPort && isPrivateIpv4;
+  } catch {
+    return false;
+  }
+}
 
 app.use(cors({
   origin: function (origin, callback) {
     if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) === -1) {
+    if (!allowedOrigins.has(origin) && !isAllowedDevOrigin(origin)) {
       const msg = `CORS policy does not allow access from: ${origin}`;
       console.error(msg);
       return callback(new Error(msg), false);
@@ -254,15 +318,21 @@ app.get("/journal-insights", async (req, res) => {
 // ---------------------------
 app.get("/health", async (req, res) => {
   const mongoStatus = await checkMongoConnection();
+  const status =
+    mongoStatus.status === "ok" && mongooseConnected ? "ok" : "degraded";
 
   res.json({
-    status: "ok",
+    status,
     server: "Combined Main Server with Auth",
     services: {
       text: "http://127.0.0.1:8001/analyze",
       face: "http://127.0.0.1:8002/analyze_face",
       speech: "http://127.0.0.1:8000/analyze_speech",
       journal: "http://127.0.0.1:8004/journal",
+      mongoose: {
+        status: mongooseConnected ? "ok" : "error",
+        uri_source: mongoUriSource || "missing",
+      },
       mongodb: mongoStatus,
       auth: "integrated",
       progress: "integrated"

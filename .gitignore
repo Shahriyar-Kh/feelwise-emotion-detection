@@ -1,36 +1,39 @@
-# Python
+# Environment and secrets
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Python caches and build artifacts
 __pycache__/
-*.pyc
+*.py[cod]
 *.pyo
 *.pyd
-*.env
-*.venv
-venv/
-<<<<<<< HEAD
-face-venv/
-venv3102/
-face-venv-testing/
-Testing_Emotions/
-
-=======
-venv3102/
-face-venv-testing/
->>>>>>> f9bef56c2a2f473f60aa419695804c2067be00ff
-main-venv/
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
 *.sqlite3
-*.log
 
-# VSCode
-.vscode/
-
-# PyCharm
-.idea/
-
-# MacOS
-.DS_Store
+# Python virtual environments
+.venv/
+venv/
+main-venv/
+face-venv/
+face-venv-testing/
+venv310/
+venv3102/
+FastAPI_Backend/venv/
+FastAPI_Backend/venv310/
+FastAPI_Backend/venv3102/
+FastAPI_Backend/face-venv-testing/
 
 # Node
 node_modules/
+FastAPI_Backend/node_modules/
 dist/
 build/
 npm-debug.log*
@@ -40,19 +43,20 @@ yarn-error.log*
 # Logs
 logs/
 *.log
+FastAPI_Backend/speech_analysis.log
 
-# Environment
-.env
-
-# Coverage reports
-.coverage
-htmlcov/
-
-# Python bytecode cache
-__pycache__/
-
-# Editor backups
-*~
-
-# Temporary files
+# Runtime/generated files
 tmp/
+temp/
+uploads/
+FastAPI_Backend/uploads/
+
+# Local datasets and large generated assets
+Testing_Emotions/
+
+# Editors and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*~

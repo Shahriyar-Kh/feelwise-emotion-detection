@@ -32,10 +32,25 @@ router = APIRouter(prefix="/journal", tags=["Journal"])
 load_dotenv()
 
 # Use the same environment variable name as main server
-MONGO_URI = os.getenv("MONGODB_URI")
+PRIMARY_MONGO_URI = os.getenv("MONGODB_URI")
+FALLBACK_MONGO_URI = os.getenv("MONGODB_LOCAL_URI") or os.getenv("LOCAL_MONGODB_URI")
+MONGO_URI = PRIMARY_MONGO_URI or FALLBACK_MONGO_URI
+MONGO_URI_SOURCE = "MONGODB_URI" if PRIMARY_MONGO_URI else "MONGODB_LOCAL_URI" if FALLBACK_MONGO_URI else None
+
+
+def format_mongo_error(error: Exception) -> str:
+    if hasattr(error, "code") and getattr(error, "code") == "ENOTFOUND":
+        hostname = getattr(error, "hostname", "unknown host")
+        return (
+            f"DNS lookup failed for MongoDB host: {hostname}. "
+            "Replace MONGODB_URI with a valid Atlas URI or set "
+            "MONGODB_LOCAL_URI=mongodb://127.0.0.1:27017/feelwise_db."
+        )
+
+    return str(error)
 
 if not MONGO_URI:
-    print("ERROR: MONGODB_URI environment variable is not set")
+    print("ERROR: MongoDB is not configured. Set MONGODB_URI or MONGODB_LOCAL_URI.")
     sys.exit(1)
 
 # Initialize client and database variables
@@ -48,7 +63,7 @@ def connect_to_mongodb():
     global client, db, journal_collection
     
     try:
-        print(f"Attempting to connect to MongoDB...")
+        print(f"Attempting to connect to MongoDB using {MONGO_URI_SOURCE}...")
         
         # Create client with timeout settings
         client = MongoClient(
@@ -75,14 +90,14 @@ def connect_to_mongodb():
         return True
         
     except (ConnectionFailure, ConfigurationError) as e:
-        print(f"❌ MongoDB connection failed: {e}")
+        print(f"❌ MongoDB connection failed: {format_mongo_error(e)}")
         print("⚠️  Server will run without database functionality")
         client = None
         db = None
         journal_collection = None
         return False
     except Exception as e:
-        print(f"❌ Unexpected MongoDB error: {e}")
+        print(f"❌ Unexpected MongoDB error: {format_mongo_error(e)}")
         client = None
         db = None
         journal_collection = None
