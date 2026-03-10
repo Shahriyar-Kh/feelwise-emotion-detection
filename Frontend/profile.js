@@ -1,5 +1,8 @@
 // profile-mongo.js
-const API_BASE = "http://localhost:5000/api/auth";
+const API_ORIGIN = ["localhost", "127.0.0.1"].includes(window.location.hostname)
+  ? "http://localhost:5000"
+  : "https://feelwise-emotion-detection.onrender.com";
+const API_BASE = `${API_ORIGIN}/api/auth`;
 
 const token = localStorage.getItem("token");
 if (!token) window.location.href = "login.html";
@@ -38,7 +41,7 @@ async function loadMe() {
 
   // Fill UI
   welcomeText.textContent = `Welcome , ${me.username || "User"}! 🌟`;
-  if (me.image) userAvatar.src = `http://localhost:5000${me.image}`;
+  if (me.image) userAvatar.src = `${API_ORIGIN}${me.image}`;
   if (usernameH2) usernameH2.textContent = me.username || "UserName";
   if (emailH2) emailH2.textContent = me.email || "Email";
   if (currentMoodH2)
@@ -109,7 +112,7 @@ if (avatarForm) {
 
     const data = await res.json();
     if (res.ok) {
-      userAvatar.src = `http://localhost:5000${data.image}`;
+      userAvatar.src = `${API_ORIGIN}${data.image}`;
       alert("Profile picture updated!");
       fileInput.value = "";
     } else {

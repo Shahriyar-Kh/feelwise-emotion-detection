@@ -1,4 +1,7 @@
 document.addEventListener('DOMContentLoaded', function() {
+const API_ORIGIN = ["localhost", "127.0.0.1"].includes(window.location.hostname)
+    ? "http://localhost:5000"
+    : "https://feelwise-emotion-detection.onrender.com";
     // Elements
     const startBtn = document.getElementById('startRecordingBtn');
     const stopBtn = document.getElementById('stopRecordingBtn');
@@ -27,7 +30,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 
 // Backend API configuration
-const API_BASE = "http://localhost:5000/api";
+const API_BASE = `${API_ORIGIN}/api`;
 const token = localStorage.getItem("token");
 
 // Initialize user context for backend integration
@@ -87,7 +90,7 @@ function getUserSpecificKey(baseKey) {
     // 🆕 ADD THIS FUNCTION
 async function initializeUserContext() {
     const token = localStorage.getItem("token");
-    const API_BASE = "http://localhost:5000/api";
+    const API_BASE = `${API_ORIGIN}/api`;
     
     if (token) {
         try {
@@ -881,7 +884,7 @@ async function analyzeSpeech(transcript, audioBase64) {
     console.log("=> analyzeSpeech() starting", { transcript: transcript || "(none)", audioLength: audioBase64?.length });
 
     // In speech-analysis.js — update analyzeSpeech()
-const url = "http://127.0.0.1:8000/analyze_speech";
+const url = `${API_ORIGIN}/analyze-speech`;
 
     const payload = { transcript: transcript || "", audio: audioBase64 };
 

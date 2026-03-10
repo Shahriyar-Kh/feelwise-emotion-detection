@@ -1,7 +1,10 @@
 
 
       // API Configuration
-      const API_BASE = "http://localhost:5000/api/auth";
+      const API_ORIGIN = ["localhost", "127.0.0.1"].includes(window.location.hostname)
+        ? "http://localhost:5000"
+        : "https://feelwise-emotion-detection.onrender.com";
+      const API_BASE = `${API_ORIGIN}/api/auth`;
       const token = localStorage.getItem("token");
 
       if (!token) {
@@ -91,8 +94,8 @@
           }
 
           if (user.image) {
-            userAvatar.src = `http://localhost:5000${user.image}`;
-            headerAvatar.src = `http://localhost:5000${user.image}`;
+            userAvatar.src = `${API_ORIGIN}${user.image}`;
+            headerAvatar.src = `${API_ORIGIN}${user.image}`;
           }
 
           if (user.mood) {
@@ -259,8 +262,8 @@
           const data = await response.json();
 
           if (response.ok) {
-            userAvatar.src = `http://localhost:5000${data.image}`;
-            headerAvatar.src = `http://localhost:5000${data.image}`;
+            userAvatar.src = `${API_ORIGIN}${data.image}`;
+            headerAvatar.src = `${API_ORIGIN}${data.image}`;
             imageModal.classList.remove("active");
             avatarInput.value = "";
             imagePreview.style.display = "none";

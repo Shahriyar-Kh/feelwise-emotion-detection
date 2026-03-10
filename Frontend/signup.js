@@ -1,4 +1,7 @@
-const API_BASE = "http://localhost:5000/api/auth";
+const API_ORIGIN = ["localhost", "127.0.0.1"].includes(window.location.hostname)
+  ? "http://localhost:5000"
+  : "https://feelwise-emotion-detection.onrender.com";
+const API_BASE = `${API_ORIGIN}/api/auth`;
 
 const signupForm = document.getElementById("signup-form");
 const signupError = document.getElementById("signup-error");

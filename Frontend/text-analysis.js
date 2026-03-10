@@ -1,4 +1,7 @@
 document.addEventListener("DOMContentLoaded", function () {
+  const API_ORIGIN = ["localhost", "127.0.0.1"].includes(window.location.hostname)
+    ? "http://localhost:5000"
+    : "https://feelwise-emotion-detection.onrender.com";
   const analyzeBtn = document.getElementById("analyzeBtn");
   const userInput = document.getElementById("userInput");
   const emotionResult = document.getElementById("emotionResult");
@@ -13,7 +16,7 @@ document.addEventListener("DOMContentLoaded", function () {
   let progressChart;
 
   // Backend API configuration
-  const API_BASE = "http://localhost:5000/api";
+  const API_BASE = `${API_ORIGIN}/api`;
   const token = localStorage.getItem("token");
   let currentUserId = null;
 
@@ -70,7 +73,7 @@ async function analyzeText(text) {
     '<div class="loading"><i class="fas fa-spinner fa-spin"></i> Analyzing your text...</div>';
 
   try {
-    const response = await fetch("http://localhost:5000/analyze", {
+    const response = await fetch(`${API_ORIGIN}/analyze`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text: text }),

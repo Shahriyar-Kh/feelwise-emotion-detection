@@ -12,6 +12,7 @@ const progressRoutes = require("./routes/progress");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const isProduction = process.env.NODE_ENV === "production";
 const primaryMongoUri = process.env.MONGODB_URI;
 const fallbackMongoUri = process.env.MONGODB_LOCAL_URI || process.env.LOCAL_MONGODB_URI;
 const resolvedMongoUri = primaryMongoUri || fallbackMongoUri;
@@ -102,7 +103,9 @@ app.use((req, res, next) => {
 // ---------------------------
 // Enhanced CORS Middleware
 // ---------------------------
-const configuredOrigins = (process.env.ALLOWED_ORIGINS || "")
+const configuredOrigins = [process.env.FRONTEND_URL, process.env.ALLOWED_ORIGINS]
+  .filter(Boolean)
+  .join(",")
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);
@@ -114,6 +117,7 @@ const allowedOrigins = new Set([
   "http://localhost:5501",
   "http://localhost:3000",
   "http://127.0.0.1:3000",
+  "https://feelwise-emotion-detection.feelwise.workers.dev",
   ...configuredOrigins,
 ]);
 
@@ -165,12 +169,41 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 // ---------------------------
 // Base URLs for FastAPI services
 // ---------------------------
+function normalizeServiceUrl(url) {
+  return url ? url.replace(/\/+$/, "") : "";
+}
+
+const defaultServiceUrls = isProduction
+  ? {
+      text: "https://text-analysis-api-jjd2.onrender.com",
+      face: "",
+      speech: "",
+      journal: "https://journal-api-tz31.onrender.com",
+    }
+  : {
+      text: "http://127.0.0.1:8001",
+      face: "http://127.0.0.1:8002",
+      speech: "http://127.0.0.1:8000",
+      journal: "http://127.0.0.1:8004",
+    };
+
 const SERVICES = {
-  text: "http://127.0.0.1:8001",
-  face: "http://127.0.0.1:8002",
-  speech: "http://127.0.0.1:8000",
-  journal: "http://127.0.0.1:8004"
+  text: normalizeServiceUrl(process.env.TEXT_SERVICE_URL || defaultServiceUrls.text),
+  face: normalizeServiceUrl(process.env.FACE_SERVICE_URL || defaultServiceUrls.face),
+  speech: normalizeServiceUrl(process.env.SPEECH_SERVICE_URL || defaultServiceUrls.speech),
+  journal: normalizeServiceUrl(process.env.JOURNAL_SERVICE_URL || defaultServiceUrls.journal),
 };
+
+function ensureServiceAvailable(serviceName, res) {
+  if (SERVICES[serviceName]) {
+    return true;
+  }
+
+  return res.status(503).json({
+    error: `${serviceName} service is not configured`,
+    details: `Set ${serviceName.toUpperCase()}_SERVICE_URL to enable this feature in production.`,
+  });
+}
 
 // ---------------------------
 // Utility function for proxy requests
@@ -220,6 +253,9 @@ app.use("/api/progress", progressRoutes);
 // Proxy route for Text Analysis
 // ---------------------------
 app.post("/analyze", async (req, res) => {
+  if (ensureServiceAvailable("text", res) !== true) {
+    return;
+  }
   await proxyRequest(`${SERVICES.text}/analyze`, req, res);
 });
 
@@ -227,6 +263,9 @@ app.post("/analyze", async (req, res) => {
 // Proxy route for Face Analysis
 // ---------------------------
 app.post("/analyze-face", async (req, res) => {
+  if (ensureServiceAvailable("face", res) !== true) {
+    return;
+  }
   await proxyRequest(`${SERVICES.face}/analyze_face`, req, res);
 });
 
@@ -234,6 +273,9 @@ app.post("/analyze-face", async (req, res) => {
 // Proxy route for Speech Analysis
 // ---------------------------
 app.post("/analyze-speech", async (req, res) => {
+  if (ensureServiceAvailable("speech", res) !== true) {
+    return;
+  }
   const { transcript, audio } = req.body || {};
   if (!audio || typeof audio !== "string" || audio.length < 1000) {
     return res.status(400).json({ error: "Audio is required (base64 > 1KB)" });
@@ -248,16 +290,25 @@ app.post("/analyze-speech", async (req, res) => {
 
 // Get random prompt
 app.get("/journal/prompts", async (req, res) => {
+  if (ensureServiceAvailable("journal", res) !== true) {
+    return;
+  }
   await proxyRequest(`${SERVICES.journal}/journal/prompts`, req, res);
 });
 
 // Analyze journal text
 app.post("/journal/analyze", async (req, res) => {
+  if (ensureServiceAvailable("journal", res) !== true) {
+    return;
+  }
   await proxyRequest(`${SERVICES.journal}/journal/analyze`, req, res);
 });
 
 // Create/Save journal entry
 app.post("/journal/entry", async (req, res) => {
+  if (ensureServiceAvailable("journal", res) !== true) {
+    return;
+  }
   const user_id = req.query.user_id || "default_user";
   const url = `${SERVICES.journal}/journal/entry?user_id=${encodeURIComponent(user_id)}`;
   await proxyRequest(url, req, res);
@@ -265,6 +316,9 @@ app.post("/journal/entry", async (req, res) => {
 
 // Get journal entries
 app.get("/journal/entries", async (req, res) => {
+  if (ensureServiceAvailable("journal", res) !== true) {
+    return;
+  }
   const queryParams = new URLSearchParams({
     range: req.query.range || "30d",
     user_id: req.query.user_id || "default_user"
@@ -276,6 +330,9 @@ app.get("/journal/entries", async (req, res) => {
 
 // Get journal insights (mood trends, keywords, etc.)
 app.get("/journal/insights", async (req, res) => {
+  if (ensureServiceAvailable("journal", res) !== true) {
+    return;
+  }
   const queryParams = new URLSearchParams({
     range: req.query.range || "30d", 
     user_id: req.query.user_id || "default_user"
@@ -287,6 +344,9 @@ app.get("/journal/insights", async (req, res) => {
 
 // Delete journal entry
 app.delete("/journal/entry/:id", async (req, res) => {
+  if (ensureServiceAvailable("journal", res) !== true) {
+    return;
+  }
   const url = `${SERVICES.journal}/journal/entry/${encodeURIComponent(req.params.id)}`;
   await proxyRequest(url, req, res);
 });
@@ -295,11 +355,17 @@ app.delete("/journal/entry/:id", async (req, res) => {
 // Legacy journal routes (for backward compatibility)
 // ---------------------------
 app.post("/journal", async (req, res) => {
+  if (ensureServiceAvailable("journal", res) !== true) {
+    return;
+  }
   // Redirect to new entry endpoint
   await proxyRequest(`${SERVICES.journal}/journal/entry`, req, res);
 });
 
 app.get("/journal", async (req, res) => {
+  if (ensureServiceAvailable("journal", res) !== true) {
+    return;
+  }
   // Redirect to new entries endpoint
   const user_id = req.query.user_id || "default_user";
   const url = `${SERVICES.journal}/journal/entries?user_id=${encodeURIComponent(user_id)}`;
@@ -307,6 +373,9 @@ app.get("/journal", async (req, res) => {
 });
 
 app.get("/journal-insights", async (req, res) => {
+  if (ensureServiceAvailable("journal", res) !== true) {
+    return;
+  }
   // Redirect to new insights endpoint
   const user_id = req.query.user_id || "default_user";
   const url = `${SERVICES.journal}/journal/insights?user_id=${encodeURIComponent(user_id)}`;
@@ -325,10 +394,10 @@ app.get("/health", async (req, res) => {
     status,
     server: "Combined Main Server with Auth",
     services: {
-      text: "http://127.0.0.1:8001/analyze",
-      face: "http://127.0.0.1:8002/analyze_face",
-      speech: "http://127.0.0.1:8000/analyze_speech",
-      journal: "http://127.0.0.1:8004/journal",
+      text: SERVICES.text ? `${SERVICES.text}/analyze` : "not_configured",
+      face: SERVICES.face ? `${SERVICES.face}/analyze_face` : "not_configured",
+      speech: SERVICES.speech ? `${SERVICES.speech}/analyze_speech` : "not_configured",
+      journal: SERVICES.journal ? `${SERVICES.journal}/journal` : "not_configured",
       mongoose: {
         status: mongooseConnected ? "ok" : "error",
         uri_source: mongoUriSource || "missing",
@@ -391,7 +460,7 @@ app.use((error, req, res, next) => {
 // Start server
 // ---------------------------
 app.listen(PORT, () => {
-  console.log(`\n🚀 [NODE] Combined Main Server with Auth running on http://localhost:${PORT}`);
+  console.log(`\n🚀 [NODE] Combined Main Server with Auth running on ${process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`}`);
   console.log(`🔗 Analysis endpoints:`);
   console.log(`   POST /analyze            → ${SERVICES.text}/analyze`);
   console.log(`   POST /analyze-face       → ${SERVICES.face}/analyze_face`);

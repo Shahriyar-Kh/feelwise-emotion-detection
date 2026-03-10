@@ -12,7 +12,10 @@ const progressChart = document.getElementById("progressChart");
 const analyzeEmotionBtn = document.getElementById("analyzeEmotionBtn");
 
 // Backend configuration
-const API_BASE = "http://localhost:5000/api";
+const API_ORIGIN = ["localhost", "127.0.0.1"].includes(window.location.hostname)
+    ? "http://localhost:5000"
+    : "https://feelwise-emotion-detection.onrender.com";
+const API_BASE = `${API_ORIGIN}/api`;
 const token = localStorage.getItem("token");
 let currentUserId = null;
 let imageDataURL = "";
@@ -166,7 +169,7 @@ async function sendImageForAnalysis(base64Image) {
         // Preprocess image first
         const processedImage = await preprocessImage(base64Image);
         
-        const response = await fetch("http://localhost:5000/analyze-face", {
+        const response = await fetch(`${API_ORIGIN}/analyze-face`, {
             method: "POST",
             headers: { 
                 "Content-Type": "application/json"
@@ -459,7 +462,7 @@ async function fallbackBasicAnalysis(base64Image) {
             </div>
         `;
         
-        const response = await fetch("http://localhost:5000/analyze-face", {
+        const response = await fetch(`${API_ORIGIN}/analyze-face`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ image: base64Image })
@@ -1620,7 +1623,7 @@ async function sendImageForAnalysis(base64Image) {
     emotionResult.innerHTML = "Analyzing facial expression...";
 
     try {
-        const response = await fetch("http://localhost:5000/analyze-face", {
+        const response = await fetch(`${API_ORIGIN}/analyze-face`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ image: base64Image })
