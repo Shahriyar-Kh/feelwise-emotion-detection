@@ -4,6 +4,7 @@ document.addEventListener("DOMContentLoaded", function () {
     : "https://feelwise-emotion-detection.onrender.com";
   const analyzeBtn = document.getElementById("analyzeBtn");
   const userInput = document.getElementById("userInput");
+  const wordCountEl = document.getElementById("wordCount");
   const emotionResult = document.getElementById("emotionResult");
   const recommendationsContent = document.getElementById(
     "recommendationsContent"
@@ -751,6 +752,8 @@ function updateDailyTipWithEmotion(emotion) {
           emotions: result.emotions,
           dominantEmotion: result.dominantEmotion,
           emotionDetails: result.emotionDetails,
+          sarcasmDetected: result.sarcasmDetected,
+          negationDetected: result.negationDetected,
           timestamp: result.timestamp,
         }),
       });
@@ -779,6 +782,10 @@ function updateDailyTipWithEmotion(emotion) {
       if (response.ok) {
         const history = await response.json();
         console.log(`Loaded ${history.length} analyses from backend`);
+        localStorage.setItem(
+          getUserSpecificKey("emotionHistory"),
+          JSON.stringify(history)
+        );
       }
     } catch (error) {
       console.error("Error loading analysis history:", error);
@@ -882,6 +889,174 @@ function updateDailyTipWithEmotion(emotion) {
     }
   }
 
+  function classifyEmotion(emotion) {
+    if (!emotion) return "neutral";
+
+    const normalizedEmotion = emotion.toLowerCase();
+    const positiveEmotions = ["joy", "love", "surprise", "happy", "happiness"];
+    const negativeEmotions = ["sadness", "sad", "anger", "angry", "fear", "anxious", "disgust"];
+
+    if (positiveEmotions.includes(normalizedEmotion)) return "positive";
+    if (negativeEmotions.includes(normalizedEmotion)) return "negative";
+    return "neutral";
+  }
+
+  function generateReportData(data, type = "text") {
+    if (!Array.isArray(data) || data.length === 0) {
+      return null;
+    }
+
+    const timestamps = data
+      .map((entry) => new Date(entry.timestamp || entry.createdAt || Date.now()))
+      .filter((date) => !Number.isNaN(date.getTime()));
+    const oldestAnalysis = timestamps.length
+      ? new Date(Math.min(...timestamps))
+      : new Date();
+    const daysDiff = Math.max(
+      1,
+      Math.ceil((Date.now() - oldestAnalysis.getTime()) / (1000 * 60 * 60 * 24))
+    );
+
+    const emotionTrends = {};
+    const emotionFrequency = {};
+    const totalEmotions = { positive: 0, negative: 0, neutral: 0 };
+
+    data.forEach((analysis) => {
+      const dominantEmotion =
+        analysis.dominantEmotion || analysis.emotion || "neutral";
+      emotionTrends[dominantEmotion] =
+        (emotionTrends[dominantEmotion] || 0) + 1;
+      emotionFrequency[dominantEmotion] =
+        (emotionFrequency[dominantEmotion] || 0) + 1;
+
+      if (type === "text") {
+        totalEmotions.positive += analysis.emotions?.positive || 0;
+        totalEmotions.negative += analysis.emotions?.negative || 0;
+        totalEmotions.neutral += analysis.emotions?.neutral || 0;
+      } else {
+        const emotionClass = classifyEmotion(dominantEmotion);
+        totalEmotions[emotionClass] += 100;
+      }
+    });
+
+    const dominantEmotion = Object.keys(emotionTrends).length
+      ? Object.entries(emotionTrends).reduce((best, current) =>
+          current[1] > best[1] ? current : best
+        )[0]
+      : "neutral";
+
+    return {
+      totalAnalyses: data.length,
+      timeRange: `${daysDiff} days`,
+      emotionTrends,
+      emotionFrequency,
+      averageEmotions: {
+        positive: totalEmotions.positive / data.length,
+        negative: totalEmotions.negative / data.length,
+        neutral: totalEmotions.neutral / data.length,
+      },
+      dominantEmotion,
+      allData: data,
+    };
+  }
+
+  async function generateAssessmentReport() {
+    const summary = await getUserProgressSummary();
+    return generateReportData(summary.recentAnalyses || [], "text");
+  }
+
+  async function prepareReportForPage() {
+    const report = await generateAssessmentReport();
+    if (report) {
+      sessionStorage.setItem("textAssessmentReport", JSON.stringify(report));
+    }
+    return report;
+  }
+
+  async function exportUserAnalysisData() {
+    const summary = await getUserProgressSummary();
+    const blob = new Blob([JSON.stringify(summary, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `feelwise-text-analysis-${new Date()
+      .toISOString()
+      .slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  async function syncAnalysisData() {
+    if (!token || currentUserId === "guest") {
+      return {
+        synced: false,
+        reason: "guest",
+      };
+    }
+
+    await loadUserAnalysisHistory();
+    return {
+      synced: true,
+      history: JSON.parse(
+        localStorage.getItem(getUserSpecificKey("emotionHistory")) || "[]"
+      ),
+    };
+  }
+
+  async function deleteAnalysis(analysisId) {
+    if (!analysisId) {
+      throw new Error("Analysis ID is required");
+    }
+
+    if (token && currentUserId !== "guest") {
+      const response = await fetch(`${API_BASE}/text-analysis/${analysisId}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Delete failed: ${response.status}`);
+      }
+    }
+
+    const userHistoryKey = getUserSpecificKey("emotionHistory");
+    const history = JSON.parse(localStorage.getItem(userHistoryKey) || "[]");
+    const nextHistory = history.filter((entry) => {
+      const entryId = entry._id || entry.id;
+      return entryId !== analysisId;
+    });
+    localStorage.setItem(userHistoryKey, JSON.stringify(nextHistory));
+
+    return true;
+  }
+
+  async function recordTextAnalysisChallenge(mood, challenge = "text-analysis") {
+    if (!token || currentUserId === "guest") {
+      return { saved: false, reason: "guest" };
+    }
+
+    const response = await fetch(`${API_BASE}/progress/complete-challenge`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ mood, challenge }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Challenge save failed: ${response.status}`);
+    }
+
+    return response.json();
+  }
+
   // Make functions available globally
   window.generateAssessmentReport = generateAssessmentReport;
   window.prepareReportForPage = prepareReportForPage;
@@ -905,18 +1080,20 @@ function updateDailyTipWithEmotion(emotion) {
   checkAuthenticationStatus();
 
   // Word count functionality
-  userInput.addEventListener('input', function() {
-    const text = this.value.trim();
-    const words = text.split(/\s+/).filter(word => word.length > 0);
-    const wordCount = words.length;
-    
-    if (text.length > 0) {
-      wordCountEl.style.display = 'block';
-      wordCountEl.textContent = `${wordCount} word${wordCount !== 1 ? 's' : ''}`;
-    } else {
-      wordCountEl.style.display = 'none';
-    }
-  });
+  if (wordCountEl) {
+    userInput.addEventListener('input', function() {
+      const text = this.value.trim();
+      const words = text.split(/\s+/).filter(word => word.length > 0);
+      const wordCount = words.length;
+      
+      if (text.length > 0) {
+        wordCountEl.style.display = 'block';
+        wordCountEl.textContent = `${wordCount} word${wordCount !== 1 ? 's' : ''}`;
+      } else {
+        wordCountEl.style.display = 'none';
+      }
+    });
+  }
 
   // Add CSS for new elements
   const style = document.createElement('style');
@@ -999,21 +1176,4 @@ function updateDailyTipWithEmotion(emotion) {
   `;
   document.head.appendChild(style);
 });
-
-// Word count functionality - only shows when user types
-    const userInput = document.getElementById('userInput');
-    const wordCountEl = document.getElementById('wordCount');
-
-    userInput.addEventListener('input', function() {
-      const text = this.value.trim();
-      const words = text.split(/\s+/).filter(word => word.length > 0);
-      const wordCount = words.length;
-      
-      if (text.length > 0) {
-        wordCountEl.style.display = 'block';
-        wordCountEl.textContent = `${wordCount} word${wordCount !== 1 ? 's' : ''}`;
-      } else {
-        wordCountEl.style.display = 'none';
-      }
-    });
   

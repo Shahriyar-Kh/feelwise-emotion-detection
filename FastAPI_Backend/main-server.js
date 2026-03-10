@@ -7,6 +7,7 @@ const mongoose = require("mongoose");
 const { MongoClient } = require("mongodb");
 
 // Import auth and progress routes
+const auth = require("./middleware/auth");
 const authRoutes = require("./routes/auth");
 const progressRoutes = require("./routes/progress");
 
@@ -19,6 +20,269 @@ const resolvedMongoUri = primaryMongoUri || fallbackMongoUri;
 const mongoUriSource = primaryMongoUri ? "MONGODB_URI" : fallbackMongoUri ? "MONGODB_LOCAL_URI" : null;
 
 let mongooseConnected = false;
+
+const TEXT_EMOTION_KEYWORDS = {
+  joy: ["happy", "joy", "joyful", "excited", "great", "wonderful", "good", "amazing", "awesome", "glad", "pleased", "content"],
+  sadness: ["sad", "unhappy", "depressed", "down", "gloomy", "lonely", "miserable", "heartbroken", "bad"],
+  anger: ["angry", "mad", "furious", "rage", "annoyed", "frustrated", "irritated", "hate", "upset"],
+  fear: ["afraid", "fear", "scared", "anxious", "worried", "nervous", "terrified", "stressed"],
+  surprise: ["surprised", "surprise", "shocked", "amazed", "astonished", "unexpected", "wow"],
+  love: ["love", "adore", "affection", "caring", "kindness", "warmth", "cherish"],
+};
+
+const TEXT_POSITIVE_EMOTIONS = new Set(["joy", "love", "surprise"]);
+const TEXT_NEGATIVE_EMOTIONS = new Set(["sadness", "anger", "fear"]);
+const TEXT_NEGATION_WORDS = new Set(["not", "no", "never", "don't", "doesn't", "didn't", "can't", "cannot", "won't", "isn't", "aren't", "wasn't", "weren't", "without"]);
+const TEXT_INTENSIFIERS = new Set(["very", "really", "extremely", "so", "too", "highly", "deeply", "absolutely", "totally"]);
+const TEXT_SARCASM_PATTERNS = [
+  /\boh\s+(great|wonderful|perfect)\b/i,
+  /\bjust\s+what\s+i\s+needed\b/i,
+  /\bthanks\s+a\s+lot\b/i,
+  /\bhow\s+lovely\b/i,
+  /\boh\s+joy\b/i,
+];
+
+let TextAnalysis;
+
+try {
+  TextAnalysis = mongoose.model("TextAnalysis");
+} catch {
+  const TextAnalysisSchema = new mongoose.Schema(
+    {
+      userId: { type: mongoose.Schema.Types.ObjectId, ref: "users", required: true, index: true },
+      text: { type: String, required: true, trim: true },
+      emotions: {
+        positive: { type: Number, default: 0 },
+        negative: { type: Number, default: 0 },
+        neutral: { type: Number, default: 0 },
+      },
+      dominantEmotion: { type: String, default: "neutral", index: true },
+      emotionDetails: { type: mongoose.Schema.Types.Mixed, default: {} },
+      sarcasmDetected: { type: Boolean, default: false },
+      negationDetected: { type: Boolean, default: false },
+      timestamp: { type: Date, default: Date.now, index: true },
+    },
+    { timestamps: true }
+  );
+
+  TextAnalysis = mongoose.model("TextAnalysis", TextAnalysisSchema);
+}
+
+function roundToTwo(value) {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function createNeutralAnalysis(text) {
+  return {
+    text,
+    emotion: "neutral",
+    emotion_distribution: {
+      joy: 0,
+      sadness: 0,
+      anger: 0,
+      fear: 0,
+      surprise: 0,
+      love: 0,
+    },
+    sentiment: {
+      positive: 0,
+      negative: 0,
+      neutral: 100,
+    },
+    negation_detected: false,
+    sarcasm_detected: false,
+  };
+}
+
+function buildTextSentiment(distribution) {
+  const positive = Object.entries(distribution)
+    .filter(([emotion]) => TEXT_POSITIVE_EMOTIONS.has(emotion))
+    .reduce((sum, [, value]) => sum + value, 0);
+  const negative = Object.entries(distribution)
+    .filter(([emotion]) => TEXT_NEGATIVE_EMOTIONS.has(emotion))
+    .reduce((sum, [, value]) => sum + value, 0);
+
+  const normalizedPositive = roundToTwo(Math.min(100, positive));
+  const normalizedNegative = roundToTwo(Math.min(100, negative));
+  const neutral = roundToTwo(Math.max(0, 100 - normalizedPositive - normalizedNegative));
+
+  return {
+    positive: normalizedPositive,
+    negative: normalizedNegative,
+    neutral,
+  };
+}
+
+function analyzeTextLocally(text) {
+  const normalizedText = typeof text === "string" ? text.trim() : "";
+
+  if (!normalizedText) {
+    return createNeutralAnalysis("");
+  }
+
+  const tokens = normalizedText.toLowerCase().match(/[a-z']+/g) || [];
+  const scores = {
+    joy: 0,
+    sadness: 0,
+    anger: 0,
+    fear: 0,
+    surprise: 0,
+    love: 0,
+  };
+
+  let negationDetected = false;
+  let sarcasmDetected = TEXT_SARCASM_PATTERNS.some((pattern) => pattern.test(normalizedText));
+
+  tokens.forEach((token, index) => {
+    const intensity = TEXT_INTENSIFIERS.has(tokens[index - 1]) ? 1.5 : 1;
+    const windowTokens = tokens.slice(Math.max(0, index - 3), index);
+    const isNegated = windowTokens.some((windowToken) => TEXT_NEGATION_WORDS.has(windowToken));
+
+    if (isNegated) {
+      negationDetected = true;
+    }
+
+    for (const [emotion, keywords] of Object.entries(TEXT_EMOTION_KEYWORDS)) {
+      if (!keywords.includes(token)) {
+        continue;
+      }
+
+      if (isNegated) {
+        if (emotion === "joy" || emotion === "love") {
+          scores.sadness += intensity;
+        } else if (emotion === "fear") {
+          scores.joy += intensity * 0.75;
+        } else {
+          scores[emotion] += intensity * 0.25;
+        }
+      } else {
+        scores[emotion] += intensity;
+      }
+    }
+  });
+
+  const hasNegativeContext = /(broken|broke|failed|problem|issue|tired|again|late|stuck|hate)/i.test(normalizedText);
+  const hasPositiveCue = /(great|wonderful|perfect|amazing|nice|love)/i.test(normalizedText);
+  if (!sarcasmDetected && hasNegativeContext && hasPositiveCue) {
+    sarcasmDetected = true;
+  }
+
+  if (sarcasmDetected && (scores.joy > 0 || scores.love > 0 || scores.surprise > 0)) {
+    scores.anger += Math.max(scores.joy, scores.love, scores.surprise, 1);
+  }
+
+  const totalScore = Object.values(scores).reduce((sum, value) => sum + value, 0);
+  if (totalScore <= 0) {
+    return {
+      ...createNeutralAnalysis(normalizedText),
+      negation_detected: negationDetected,
+      sarcasm_detected: sarcasmDetected,
+    };
+  }
+
+  const emotion_distribution = Object.fromEntries(
+    Object.entries(scores).map(([emotion, value]) => [emotion, roundToTwo((value / totalScore) * 100)])
+  );
+
+  const dominantEmotion = Object.entries(scores).reduce((best, current) =>
+    current[1] > best[1] ? current : best
+  )[0];
+
+  return {
+    text: normalizedText,
+    emotion: dominantEmotion,
+    emotion_distribution,
+    sentiment: buildTextSentiment(emotion_distribution),
+    negation_detected: negationDetected,
+    sarcasm_detected: sarcasmDetected,
+  };
+}
+
+function getPeriodStart(period) {
+  const now = new Date();
+  const normalizedPeriod = String(period || "").toLowerCase();
+  const start = new Date(now);
+
+  if (["daily", "day", "24h", "1d"].includes(normalizedPeriod)) {
+    start.setDate(now.getDate() - 1);
+    return start;
+  }
+
+  if (["weekly", "week", "7d"].includes(normalizedPeriod)) {
+    start.setDate(now.getDate() - 7);
+    return start;
+  }
+
+  if (["monthly", "month", "30d"].includes(normalizedPeriod)) {
+    start.setDate(now.getDate() - 30);
+    return start;
+  }
+
+  return null;
+}
+
+function ensureTextAnalysisPersistence(res) {
+  if (!mongooseConnected || mongoose.connection.readyState !== 1) {
+    res.status(503).json({
+      error: "Text analysis storage is unavailable",
+      details: "MongoDB connection is not ready.",
+    });
+    return false;
+  }
+
+  return true;
+}
+
+function getUserObjectId(userId, res) {
+  if (!mongoose.Types.ObjectId.isValid(userId)) {
+    res.status(400).json({ error: "Invalid user ID format" });
+    return null;
+  }
+
+  return new mongoose.Types.ObjectId(userId);
+}
+
+async function proxyTextAnalysisOrFallback(req, res) {
+  const rid = req._rid;
+  const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
+
+  if (!text) {
+    return res.status(400).json({ error: "Text is required" });
+  }
+
+  if (SERVICES.text) {
+    try {
+      console.log(`➡️  [${rid}] Proxying: POST ${SERVICES.text}/analyze`);
+      const response = await fetch(`${SERVICES.text}/analyze`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Request-Id": rid,
+        },
+        body: JSON.stringify({ text }),
+      });
+
+      const rawBody = await response.text();
+      console.log(`⬅️  [${rid}] Response: ${response.status}`);
+
+      if (response.ok) {
+        return res.status(200).type("application/json").send(rawBody);
+      }
+
+      if (response.status < 500 && response.status !== 502) {
+        return res.status(response.status).type("application/json").send(rawBody);
+      }
+
+      console.warn(`🟨 [${rid}] Text service unavailable (${response.status}); using local fallback.`);
+    } catch (error) {
+      console.warn(`🟨 [${rid}] Text service request failed; using local fallback: ${error.message}`);
+    }
+  } else {
+    console.warn(`🟨 [${rid}] TEXT_SERVICE_URL not configured; using local fallback.`);
+  }
+
+  return res.json(analyzeTextLocally(text));
+}
 
 function formatMongoError(err) {
   if (!err) {
@@ -250,13 +514,141 @@ app.use("/api/auth", authRoutes);
 app.use("/api/progress", progressRoutes);
 
 // ---------------------------
+// Text Analysis Persistence Routes
+// ---------------------------
+app.post("/api/text-analysis/save", auth, async (req, res) => {
+  if (!ensureTextAnalysisPersistence(res)) {
+    return;
+  }
+
+  const userObjectId = getUserObjectId(req.userId, res);
+  if (!userObjectId) {
+    return;
+  }
+
+  const {
+    text,
+    emotions = {},
+    dominantEmotion = "neutral",
+    emotionDetails = {},
+    timestamp,
+    sarcasmDetected = false,
+    negationDetected = false,
+  } = req.body || {};
+
+  if (!text || typeof text !== "string") {
+    return res.status(400).json({ error: "Text is required" });
+  }
+
+  try {
+    const entry = await TextAnalysis.create({
+      userId: userObjectId,
+      text: text.trim(),
+      emotions: {
+        positive: Number(emotions.positive) || 0,
+        negative: Number(emotions.negative) || 0,
+        neutral: Number(emotions.neutral) || 0,
+      },
+      dominantEmotion: String(dominantEmotion || "neutral").toLowerCase(),
+      emotionDetails,
+      sarcasmDetected: Boolean(sarcasmDetected),
+      negationDetected: Boolean(negationDetected),
+      timestamp: timestamp ? new Date(timestamp) : new Date(),
+    });
+
+    res.status(201).json(entry);
+  } catch (error) {
+    console.error("Failed to save text analysis:", error);
+    res.status(500).json({ error: "Failed to save text analysis", details: error.message });
+  }
+});
+
+app.get("/api/text-analysis/history", auth, async (req, res) => {
+  if (!ensureTextAnalysisPersistence(res)) {
+    return;
+  }
+
+  const userObjectId = getUserObjectId(req.userId, res);
+  if (!userObjectId) {
+    return;
+  }
+
+  try {
+    const entries = await TextAnalysis.find({ userId: userObjectId })
+      .sort({ timestamp: -1, createdAt: -1 })
+      .lean();
+
+    res.json(entries);
+  } catch (error) {
+    console.error("Failed to load text analysis history:", error);
+    res.status(500).json({ error: "Failed to load text analysis history", details: error.message });
+  }
+});
+
+app.get("/api/text-analysis/history/:period", auth, async (req, res) => {
+  if (!ensureTextAnalysisPersistence(res)) {
+    return;
+  }
+
+  const userObjectId = getUserObjectId(req.userId, res);
+  if (!userObjectId) {
+    return;
+  }
+
+  const startDate = getPeriodStart(req.params.period);
+  const filter = { userId: userObjectId };
+  if (startDate) {
+    filter.timestamp = { $gte: startDate };
+  }
+
+  try {
+    const entries = await TextAnalysis.find(filter)
+      .sort({ timestamp: -1, createdAt: -1 })
+      .lean();
+
+    res.json(entries);
+  } catch (error) {
+    console.error("Failed to load filtered text analysis history:", error);
+    res.status(500).json({ error: "Failed to load filtered text analysis history", details: error.message });
+  }
+});
+
+app.delete("/api/text-analysis/:id", auth, async (req, res) => {
+  if (!ensureTextAnalysisPersistence(res)) {
+    return;
+  }
+
+  const userObjectId = getUserObjectId(req.userId, res);
+  if (!userObjectId) {
+    return;
+  }
+
+  if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(400).json({ error: "Invalid text analysis ID" });
+  }
+
+  try {
+    const deleted = await TextAnalysis.findOneAndDelete({
+      _id: new mongoose.Types.ObjectId(req.params.id),
+      userId: userObjectId,
+    }).lean();
+
+    if (!deleted) {
+      return res.status(404).json({ error: "Text analysis entry not found" });
+    }
+
+    res.json({ success: true, deletedId: req.params.id });
+  } catch (error) {
+    console.error("Failed to delete text analysis entry:", error);
+    res.status(500).json({ error: "Failed to delete text analysis entry", details: error.message });
+  }
+});
+
+// ---------------------------
 // Proxy route for Text Analysis
 // ---------------------------
 app.post("/analyze", async (req, res) => {
-  if (ensureServiceAvailable("text", res) !== true) {
-    return;
-  }
-  await proxyRequest(`${SERVICES.text}/analyze`, req, res);
+  await proxyTextAnalysisOrFallback(req, res);
 });
 
 // ---------------------------
@@ -418,6 +810,10 @@ app.get("/", (req, res) => {
     endpoints: [
       // Analysis endpoints
       "POST /analyze - Text analysis",
+      "POST /api/text-analysis/save - Save text analysis",
+      "GET /api/text-analysis/history - Get text analysis history",
+      "GET /api/text-analysis/history/:period - Get filtered text analysis history",
+      "DELETE /api/text-analysis/:id - Delete text analysis entry",
       "POST /analyze-face - Face emotion analysis", 
       "POST /analyze-speech - Speech emotion analysis",
       
@@ -463,6 +859,10 @@ app.listen(PORT, () => {
   console.log(`\n🚀 [NODE] Combined Main Server with Auth running on ${process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`}`);
   console.log(`🔗 Analysis endpoints:`);
   console.log(`   POST /analyze            → ${SERVICES.text}/analyze`);
+  console.log(`   POST /api/text-analysis/save`);
+  console.log(`   GET  /api/text-analysis/history`);
+  console.log(`   GET  /api/text-analysis/history/:period`);
+  console.log(`   DELETE /api/text-analysis/:id`);
   console.log(`   POST /analyze-face       → ${SERVICES.face}/analyze_face`);
   console.log(`   POST /analyze-speech     → ${SERVICES.speech}/analyze_speech`);
   console.log(`🔗 Journal endpoints:`);
