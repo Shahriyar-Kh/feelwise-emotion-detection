@@ -1,0 +1,6 @@
+fastapi==0.116.1
+uvicorn[standard]==0.32.0
+pydantic==2.8.2
+pymongo==4.14.1
+python-dotenv==1.0.1
+vaderSentiment==3.3.2
