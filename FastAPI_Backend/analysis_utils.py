@@ -5,20 +5,38 @@ import nltk
 from nltk.tokenize import word_tokenize, sent_tokenize
 from nltk.corpus import stopwords
 
-# Download NLTK data if not present
-try:
-    nltk.data.find('tokenizers/punkt')
-    nltk.data.find('corpora/stopwords')
-except LookupError:
+def ensure_nltk_data() -> None:
+    required_resources = [
+        ('tokenizers/punkt', 'punkt'),
+        ('tokenizers/punkt_tab', 'punkt_tab'),
+        ('corpora/stopwords', 'stopwords'),
+    ]
+
+    missing_packages = []
+    for resource_path, package_name in required_resources:
+        try:
+            nltk.data.find(resource_path)
+        except LookupError:
+            missing_packages.append(package_name)
+
+    if not missing_packages:
+        return
+
     import ssl
+
     try:
         _create_unverified_https_context = ssl._create_unverified_context
     except AttributeError:
-        pass
-    else:
+        _create_unverified_https_context = None
+
+    if _create_unverified_https_context is not None:
         ssl._create_default_https_context = _create_unverified_https_context
-    nltk.download('punkt', quiet=True)
-    nltk.download('stopwords', quiet=True)
+
+    for package_name in missing_packages:
+        nltk.download(package_name, quiet=True)
+
+
+ensure_nltk_data()
 
 EMOTION_KEYWORDS = {
     "joy": ["happy", "joy", "joyful", "excited", "exciting", "great", "wonderful", 
@@ -71,6 +89,7 @@ SARCASM_PATTERNS = [
 
 def preprocess_text(text: str) -> List[str]:
     """Tokenize and clean text"""
+    ensure_nltk_data()
     text = text.lower()
     text = re.sub(r'\s+', ' ', text).strip()
     tokens = word_tokenize(text)
