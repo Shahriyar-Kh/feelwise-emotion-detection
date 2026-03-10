@@ -613,4 +613,4 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("journal_api:app", host="0.0.0.0", port=8004, reload=True)
+    uvicorn.run("journal_api:app", host="0.0.0.0", port=int(os.getenv("PORT", "8004")))

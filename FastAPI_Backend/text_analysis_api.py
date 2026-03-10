@@ -1,4 +1,5 @@
-# text-analysis-api.py (updated version)
+# text_analysis_api.py
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -36,5 +37,5 @@ def health_check():
     return {"status": "healthy", "service": "text-emotion-analysis"}
 
 if __name__ == "__main__":
-    uvicorn.run("text-analysis-api:app", host="0.0.0.0", port=8001, reload=True)
+    uvicorn.run("text_analysis_api:app", host="0.0.0.0", port=int(os.getenv("PORT", "8001")))
     
