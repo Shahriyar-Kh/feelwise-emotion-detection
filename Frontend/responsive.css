@@ -1,0 +1,382 @@
+/* Global responsive foundation for all templates */
+:root {
+  --fw-container-max: 1280px;
+  --fw-space-xs: 0.5rem;
+  --fw-space-sm: 0.75rem;
+  --fw-space-md: 1rem;
+  --fw-space-lg: 1.5rem;
+  --fw-space-xl: 2rem;
+  --fw-radius-md: 12px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+body {
+  min-width: 320px;
+}
+
+img,
+video,
+canvas,
+iframe,
+svg {
+  max-width: 100%;
+  height: auto;
+}
+
+input,
+select,
+textarea,
+button {
+  font: inherit;
+  max-width: 100%;
+}
+
+button,
+.btn,
+.nav-link,
+[role="button"] {
+  min-height: 44px;
+}
+
+.container,
+.content-wrapper,
+.main-content,
+.dashboard,
+.layout,
+.features-container,
+.hero-container,
+.header-content,
+.footer-content,
+.section-container {
+  width: min(100% - 2rem, var(--fw-container-max));
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.main-nav {
+  flex-wrap: wrap;
+}
+
+/* Shared mobile nav toggle for pages using .site-header + .main-nav */
+.site-header .header-content,
+.app-header {
+  position: relative;
+  gap: var(--fw-space-md);
+}
+
+.site-header {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin-top: 0 !important;
+}
+
+.fw-nav-toggle {
+  display: none;
+  border: 0;
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  border-radius: 10px;
+  padding: 0.55rem 0.75rem;
+  cursor: pointer;
+}
+
+.app-header .fw-nav-toggle {
+  background: rgba(0, 0, 0, 0.08);
+  color: #111;
+}
+
+.fw-nav-toggle i {
+  pointer-events: none;
+}
+
+/* Profile/sidebar layout helper */
+.fw-sidebar-toggle {
+  display: none;
+  border: 0;
+  border-radius: 10px;
+  padding: 0.6rem 0.8rem;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+/* Tables become scrollable on small screens */
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table-responsive,
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Utility fixes for common overflow issues */
+.card,
+.panel,
+.module-item,
+.feature-card,
+.nav-card,
+.info-card,
+.modal,
+.modal-content {
+  max-width: 100%;
+}
+
+/* 320px+ default mobile-first */
+@media (max-width: 479px) {
+  body {
+    font-size: 14px;
+  }
+
+  .site-header .header-content,
+  .header,
+  .app-header,
+  .panel,
+  .card,
+  .modal,
+  .modal-content {
+    padding-left: var(--fw-space-sm);
+    padding-right: var(--fw-space-sm);
+  }
+
+  .main-nav,
+  .header-actions,
+  .filters,
+  .profile-actions,
+  .editor-actions,
+  .btn-container {
+    gap: var(--fw-space-sm);
+    flex-wrap: wrap;
+  }
+
+  .main-nav .nav-link,
+  .btn,
+  .btn-primary,
+  .btn-secondary,
+  .mood-submit {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .user-info {
+    grid-template-columns: 1fr !important;
+  }
+
+  .profile-content,
+  .profile-header,
+  .modules-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .login-container,
+  .signup-container {
+    width: calc(100% - 1.25rem);
+    max-width: 430px;
+    padding: 1.25rem 1rem;
+  }
+
+  .logo-text h1,
+  .header-left h1,
+  .header-text h1,
+  .brand-title {
+    font-size: clamp(1.2rem, 6vw, 1.6rem);
+  }
+
+  .dashboard-grid,
+  .features-grid,
+  .modules-grid,
+  .nav-cards,
+  .ai-output-grid,
+  .content-wrapper {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* 480px+ */
+@media (min-width: 480px) {
+  .container,
+  .content-wrapper,
+  .main-content,
+  .dashboard,
+  .layout,
+  .features-container,
+  .hero-container,
+  .header-content,
+  .footer-content,
+  .section-container {
+    width: min(100% - 2.25rem, var(--fw-container-max));
+  }
+}
+
+/* Up to tablet: collapse nav and sidebars */
+@media (max-width: 1023px) {
+  .site-header .header-content,
+  .app-header {
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .site-header .main-nav,
+  .app-header .main-nav {
+    width: 100%;
+    display: none;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+  }
+
+  .site-header .main-nav .nav-link,
+  .app-header .main-nav .nav-link {
+    width: 100%;
+    justify-content: flex-start;
+    border-radius: 10px;
+    padding: 0.7rem 0.75rem;
+  }
+
+  .site-header.nav-open .main-nav,
+  .app-header.nav-open .main-nav {
+    display: flex;
+  }
+
+  .fw-nav-toggle {
+    display: inline-flex;
+    margin-left: auto;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .sidebar {
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    height: 100vh !important;
+    width: min(82vw, 300px) !important;
+    transform: translateX(-105%);
+    transition: transform 0.25s ease;
+    z-index: 1100;
+  }
+
+  body.sidebar-open .sidebar {
+    transform: translateX(0);
+  }
+
+  .main-content {
+    width: 100% !important;
+    margin-left: 0 !important;
+  }
+
+  .fw-sidebar-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 0.75rem;
+  }
+
+  .header {
+    flex-wrap: wrap;
+    gap: var(--fw-space-sm);
+  }
+
+  .header-right,
+  .search-box,
+  .search-box input {
+    width: 100%;
+  }
+}
+
+/* 768px+ */
+@media (min-width: 768px) {
+  body {
+    font-size: 15px;
+  }
+
+  .dashboard-grid,
+  .content-wrapper,
+  .features-grid,
+  .modules-grid,
+  .nav-cards,
+  .ai-output-grid {
+    gap: var(--fw-space-lg);
+  }
+}
+
+@media (max-width: 1023px) {
+  .content-wrapper,
+  .layout,
+  .dashboard-grid,
+  .modules-grid,
+  .nav-cards,
+  .features-grid,
+  .ai-output-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .profile-actions,
+  .form-actions,
+  .editor-actions,
+  .btn-container {
+    flex-wrap: wrap;
+  }
+
+  .profile-actions .btn-primary,
+  .profile-actions .btn-secondary,
+  .form-actions .btn-primary-full,
+  .form-actions .btn-secondary-full {
+    width: 100%;
+  }
+}
+
+/* 1024px+ */
+@media (min-width: 1024px) {
+  body {
+    font-size: 16px;
+  }
+
+  .site-header .main-nav {
+    display: flex !important;
+    flex-direction: row;
+    width: auto;
+  }
+
+  .app-header .main-nav {
+    display: flex !important;
+    flex-direction: row;
+    width: auto;
+  }
+
+  .fw-nav-toggle,
+  .fw-sidebar-toggle {
+    display: none !important;
+  }
+}
+
+/* 1280px+ */
+@media (min-width: 1280px) {
+  .container,
+  .content-wrapper,
+  .main-content,
+  .dashboard,
+  .layout,
+  .features-container,
+  .hero-container,
+  .header-content,
+  .footer-content,
+  .section-container {
+    width: min(100% - 4rem, var(--fw-container-max));
+  }
+}
